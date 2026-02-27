@@ -1,0 +1,36 @@
+# Lab 02 — External Dependencies: freepbx with external PostgreSQL and Redis
+---
+services:
+  freepbx:
+    image: tiredofit/freepbx:16
+    container_name: it-stack-freepbx
+    restart: unless-stopped
+    ports:
+      - "5060:$firstPort"
+    environment:
+      - IT_STACK_ENV=lab-02-lan
+      - DB_HOST=
+      - DB_PORT=5432
+      - REDIS_HOST=
+    networks:
+      - it-stack-net
+
+  # Lightweight local DB for lab (replace with lab-db1 in real env)
+  postgres:
+    image: postgres:16
+    container_name: it-stack-freepbx-db
+    environment:
+      POSTGRES_DB: freepbx_db
+      POSTGRES_USER: freepbx_user
+      POSTGRES_PASSWORD: freepbx_pass
+    volumes:
+      - freepbx_pg_data:/var/lib/postgresql/data
+    networks:
+      - it-stack-net
+
+networks:
+  it-stack-net:
+    driver: bridge
+
+volumes:
+  freepbx_pg_data:

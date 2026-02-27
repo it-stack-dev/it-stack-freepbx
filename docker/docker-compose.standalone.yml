@@ -1,0 +1,29 @@
+# Lab 01 — Standalone: Complete FreePBX/Asterisk VoIP PBX in isolation
+# No external dependencies required.
+---
+services:
+  freepbx:
+    image: tiredofit/freepbx:16
+    container_name: it-stack-freepbx
+    restart: unless-stopped
+    ports:
+      - "5060:$firstPort"
+    environment:
+      - IT_STACK_ENV=lab-01-standalone
+    volumes:
+      - freepbx_data:/var/lib/freepbx
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - it-stack-net
+
+networks:
+  it-stack-net:
+    driver: bridge
+
+volumes:
+  freepbx_data:

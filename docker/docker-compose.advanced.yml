@@ -1,0 +1,34 @@
+# Lab 03 — Advanced Features: freepbx with TLS, resource limits, logging
+---
+services:
+  freepbx:
+    image: tiredofit/freepbx:16
+    container_name: it-stack-freepbx
+    restart: unless-stopped
+    ports:
+      - "5060:$firstPort"
+    environment:
+      - IT_STACK_ENV=lab-03-advanced
+      - TLS_ENABLED=true
+    volumes:
+      - freepbx_data:/var/lib/freepbx
+      - ./certs:/etc/ssl/certs:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: G
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    networks:
+      - it-stack-net
+
+networks:
+  it-stack-net:
+    driver: bridge
+
+volumes:
+  freepbx_data:
