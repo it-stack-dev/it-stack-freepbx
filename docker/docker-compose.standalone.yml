@@ -1,29 +1,66 @@
-# Lab 01 — Standalone: Complete FreePBX/Asterisk VoIP PBX in isolation
-# No external dependencies required.
+# Lab 01 — Standalone: FreePBX/Asterisk VoIP PBX in complete isolation
+# Module 10 | No external dependencies required
 ---
 services:
-  freepbx:
-    image: tiredofit/freepbx:16
-    container_name: it-stack-freepbx
+  freepbx-s01-db:
+    image: mariadb:10.11
+    container_name: freepbx-s01-db
     restart: unless-stopped
-    ports:
-      - "5060:$firstPort"
     environment:
-      - IT_STACK_ENV=lab-01-standalone
+      MYSQL_ROOT_PASSWORD: RootLab01!
+      MYSQL_DATABASE: asterisk
+      MYSQL_USER: asterisk
+      MYSQL_PASSWORD: AsteriskLab01!
     volumes:
-      - freepbx_data:/var/lib/freepbx
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      - freepbx-s01-db-data:/var/lib/mysql
     networks:
-      - it-stack-net
+      - freepbx-s01-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pRootLab01!"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
-networks:
-  it-stack-net:
-    driver: bridge
+  freepbx-s01-app:
+    image: tiredofit/freepbx:16
+    container_name: freepbx-s01-app
+    restart: unless-stopped
+    depends_on:
+      freepbx-s01-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: freepbx-s01-db
+      DB_NAME: asterisk
+      DB_USER: asterisk
+      DB_PASS: AsteriskLab01!
+      DB_ADMIN_PASSWORD: RootLab01!
+      ADMIN_PASSWORD: Admin01!
+      WEBROOT: /var/www/html
+      RTP_START: "18000"
+      RTP_FINISH: "18100"
+      TZ: UTC
+    ports:
+      - "8301:80"
+      - "5160:5060/udp"
+      - "5160:5060/tcp"
+    volumes:
+      - freepbx-s01-data:/var/lib/asterisk
+      - freepbx-s01-logs:/var/log/asterisk
+    networks:
+      - freepbx-s01-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx\\|asterisk\\|login\\|password' || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 180s
 
 volumes:
-  freepbx_data:
+  freepbx-s01-db-data:
+  freepbx-s01-data:
+  freepbx-s01-logs:
+
+networks:
+  freepbx-s01-net:
+    driver: bridge
