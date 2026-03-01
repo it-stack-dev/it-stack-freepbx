@@ -1,36 +1,85 @@
-# Lab 02 — External Dependencies: freepbx with external PostgreSQL and Redis
----
+# Lab 02 — External Dependencies
+# Module 10: FreePBX/Asterisk VoIP PBX
+# External MariaDB + Mailhog SMTP relay (simulates lab-db1 + external mail)
+# Web UI:  http://localhost:8310/admin/
+# SIP:     sip:localhost:5161
+# Mailhog: http://localhost:8610
+
+name: it-stack-freepbx-lab02
+
 services:
-  freepbx:
-    image: tiredofit/freepbx:16
-    container_name: it-stack-freepbx
+  # ── External Database (simulates lab-db1) ────────────────────────────────────
+  freepbx-l02-db:
+    image: mariadb:10.11
+    container_name: freepbx-l02-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: RootLab02!
+      MYSQL_DATABASE: asterisk
+      MYSQL_USER: asterisk
+      MYSQL_PASSWORD: AsteriskLab02!
+    volumes:
+      - freepbx-l02-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-pRootLab02!", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - freepbx-l02-net
+
+  # ── External SMTP Relay (simulates external mail server) ─────────────────────
+  freepbx-l02-mail:
+    image: mailhog/mailhog:latest
+    container_name: freepbx-l02-mail
     restart: unless-stopped
     ports:
-      - "5060:$firstPort"
-    environment:
-      - IT_STACK_ENV=lab-02-lan
-      - DB_HOST=
-      - DB_PORT=5432
-      - REDIS_HOST=
+      - "8610:8025"
     networks:
-      - it-stack-net
+      - freepbx-l02-net
 
-  # Lightweight local DB for lab (replace with lab-db1 in real env)
-  postgres:
-    image: postgres:16
-    container_name: it-stack-freepbx-db
+  # ── FreePBX Application ───────────────────────────────────────────────────────
+  freepbx-l02-app:
+    image: tiredofit/freepbx:16
+    container_name: freepbx-l02-app
+    restart: unless-stopped
+    depends_on:
+      freepbx-l02-db:
+        condition: service_healthy
+      freepbx-l02-mail:
+        condition: service_started
+    ports:
+      - "8310:80"
+      - "5161:5060/udp"
+      - "5161:5060/tcp"
     environment:
-      POSTGRES_DB: freepbx_db
-      POSTGRES_USER: freepbx_user
-      POSTGRES_PASSWORD: freepbx_pass
+      DB_HOST: freepbx-l02-db
+      DB_NAME: asterisk
+      DB_USER: asterisk
+      DB_PASS: AsteriskLab02!
+      ADMIN_PASSWORD: Admin02!
+      RTP_START: "18000"
+      RTP_FINISH: "18100"
+      SMTP_HOST: freepbx-l02-mail
+      SMTP_PORT: "1025"
     volumes:
-      - freepbx_pg_data:/var/lib/postgresql/data
+      - freepbx-l02-data:/var/www/html/admin/modules
+      - freepbx-l02-logs:/var/log
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx\\|asterisk\\|login'"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 180s
     networks:
-      - it-stack-net
+      - freepbx-l02-net
 
 networks:
-  it-stack-net:
+  freepbx-l02-net:
     driver: bridge
 
 volumes:
-  freepbx_pg_data:
+  freepbx-l02-db-data:
+  freepbx-l02-data:
+  freepbx-l02-logs:
