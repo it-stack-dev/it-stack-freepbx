@@ -1,26 +1,229 @@
-# Lab 05 — Advanced Integration: freepbx with full IT-Stack ecosystem
----
+# =============================================================================
+# IT-Stack: FreePBX — Lab 05: Advanced Integration
+# Module 10 · Phase 3 · Lab 05
+# =============================================================================
+# Services: MariaDB · OpenLDAP · Keycloak · WireMock (SuiteCRM-mock) · Mailhog · FreePBX
+# Ports:    FreePBX web:8360  SIP:5165  AMI:5040  WireMock:8361
+#           Keycloak:8460  LDAP:3894  Mailhog:8660
+# Credentials:
+#   DB root:    RootLab05!
+#   FreePBX DB: asteriskuser / AsteriskLab05!
+#   FreePBX UI: admin / Admin05!
+#   Keycloak:   admin / Admin05!
+#   LDAP:       cn=admin,dc=lab,dc=local / LdapLab05!
+# What's new vs Lab 04:
+#   + WireMock 3.x simulates SuiteCRM CTI API (click-to-call + call logging)
+#   + FreePBX integration env vars: SUITECRM_URL, SUITECRM_API_KEY
+#   + AGI/webhook integration: FreePBX posts call events to SuiteCRM mock
+#   + Pre-configured WireMock stubs: /calls/save, /contacts/lookup
+# Integration tested: FreePBX ↔ SuiteCRM (CTI), FreePBX ↔ Zammad (webhooks)
+# =============================================================================
+
+name: it-stack-freepbx-lab05
+
 services:
-  freepbx:
-    image: tiredofit/freepbx:16
-    container_name: it-stack-freepbx
+
+  # ── MariaDB ──────────────────────────────────────────────────────────────
+  freepbx-i05-db:
+    image: mariadb:10.11
+    container_name: freepbx-i05-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: RootLab05!
+      MYSQL_DATABASE: asterisk
+      MYSQL_USER: asteriskuser
+      MYSQL_PASSWORD: AsteriskLab05!
+    volumes:
+      - freepbx-i05-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-pRootLab05!", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - freepbx-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # ── OpenLDAP ─────────────────────────────────────────────────────────────
+  freepbx-i05-ldap:
+    image: osixia/openldap:1.5.0
+    container_name: freepbx-i05-ldap
+    restart: unless-stopped
+    environment:
+      LDAP_ORGANISATION: "IT-Stack Lab"
+      LDAP_DOMAIN: lab.local
+      LDAP_ADMIN_PASSWORD: LdapLab05!
+      LDAP_CONFIG_PASSWORD: ConfigLab05!
+      LDAP_BASE_DN: dc=lab,dc=local
+      LDAP_READONLY_USER: "true"
+      LDAP_READONLY_USER_USERNAME: readonly
+      LDAP_READONLY_USER_PASSWORD: ReadOnly05!
+    ports:
+      - "3894:389"
+    volumes:
+      - freepbx-i05-ldap-data:/var/lib/ldap
+      - freepbx-i05-ldap-config:/etc/ldap/slapd.d
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost -b dc=lab,dc=local -D cn=admin,dc=lab,dc=local -w LdapLab05! cn=admin > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks:
+      - freepbx-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+  # ── Keycloak ─────────────────────────────────────────────────────────────
+  freepbx-i05-kc:
+    image: quay.io/keycloak/keycloak:24.0.3
+    container_name: freepbx-i05-kc
+    restart: unless-stopped
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: Admin05!
+      KC_HEALTH_ENABLED: "true"
+      KC_DB: dev-file
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8460:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/master || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    networks:
+      - freepbx-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  # ── WireMock — SuiteCRM CTI + Zammad webhook mock ────────────────────────
+  freepbx-i05-mock:
+    image: wiremock/wiremock:3.3.1
+    container_name: freepbx-i05-mock
+    restart: unless-stopped
+    command: >
+      --port=8080
+      --verbose
+      --global-response-templating
+    ports:
+      - "8361:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/__admin/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - freepbx-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+  # ── Mailhog ──────────────────────────────────────────────────────────────
+  freepbx-i05-mail:
+    image: mailhog/mailhog:latest
+    container_name: freepbx-i05-mail
     restart: unless-stopped
     ports:
-      - "5060:$firstPort"
-    environment:
-      - IT_STACK_ENV=lab-05-integration
-      - KEYCLOAK_URL=
-      - DB_HOST=
-      - REDIS_HOST=
-      - SMTP_HOST=
-      - GRAYLOG_HOST=
-    extra_hosts:
-      - "lab-id1:10.0.50.11"
-      - "lab-db1:10.0.50.12"
-      - "lab-proxy1:10.0.50.15"
+      - "8660:8025"
     networks:
-      - it-stack-net
+      - freepbx-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.1"
 
+  # ── FreePBX ──────────────────────────────────────────────────────────────
+  freepbx-i05-app:
+    image: tiredofit/freepbx:16
+    container_name: freepbx-i05-app
+    restart: unless-stopped
+    depends_on:
+      freepbx-i05-db:
+        condition: service_healthy
+      freepbx-i05-ldap:
+        condition: service_healthy
+      freepbx-i05-mock:
+        condition: service_healthy
+    ports:
+      - "8360:80"
+      - "5165:5060/udp"
+      - "5165:5060/tcp"
+      - "5040:5038"
+    environment:
+      DB_HOST: freepbx-i05-db
+      DB_PORT: "3306"
+      DB_NAME: asterisk
+      DB_USER: asteriskuser
+      DB_PASS: AsteriskLab05!
+      DB_ROOT_PASSWORD: RootLab05!
+      ADMIN_PASSWORD: Admin05!
+      WEBROOT: /var/www/html
+      # LDAP
+      LDAP_ENABLED: "TRUE"
+      LDAP_HOST: freepbx-i05-ldap
+      LDAP_PORT: "389"
+      LDAP_ADMIN_DN: cn=admin,dc=lab,dc=local
+      LDAP_ADMIN_PASS: LdapLab05!
+      LDAP_BASE_DN: dc=lab,dc=local
+      # Keycloak
+      KEYCLOAK_URL: http://freepbx-i05-kc:8080
+      KEYCLOAK_REALM: it-stack
+      KEYCLOAK_CLIENT_ID: freepbx
+      # SuiteCRM CTI integration (via WireMock)
+      SUITECRM_URL: http://freepbx-i05-mock:8080
+      SUITECRM_API_KEY: lab-integration-key-05
+      SUITECRM_CALLS_ENDPOINT: /index.php?module=Calls&action=Save
+      SUITECRM_CONTACTS_ENDPOINT: /index.php?module=Contacts&action=index
+      # Zammad webhook (via WireMock)
+      ZAMMAD_WEBHOOK_URL: http://freepbx-i05-mock:8080/api/v1/tickets
+      # Mail relay
+      SMTP_HOST: freepbx-i05-mail
+      SMTP_PORT: "1025"
+      VOICEMAIL_DOMAIN: lab.local
+    volumes:
+      - freepbx-i05-data:/data
+      - freepbx-i05-recordings:/var/spool/asterisk/monitor
+      - freepbx-i05-moh:/var/lib/asterisk/moh
+      - freepbx-i05-voicemail:/var/spool/asterisk/voicemail
+      - freepbx-i05-logs:/var/log/asterisk
+    networks:
+      - freepbx-i05-net
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+# ── Networks ─────────────────────────────────────────────────────────────────
 networks:
-  it-stack-net:
+  freepbx-i05-net:
+    name: freepbx-i05-net
     driver: bridge
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  freepbx-i05-db-data:
+  freepbx-i05-ldap-data:
+  freepbx-i05-ldap-config:
+  freepbx-i05-data:
+  freepbx-i05-recordings:
+  freepbx-i05-moh:
+  freepbx-i05-voicemail:
+  freepbx-i05-logs:
