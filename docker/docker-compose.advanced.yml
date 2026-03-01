@@ -1,34 +1,109 @@
-# Lab 03 — Advanced Features: freepbx with TLS, resource limits, logging
----
+# Lab 03 — Advanced Features
+# Module 10: FreePBX/Asterisk VoIP PBX
+# External MariaDB + Mailhog + resource limits + recordings/MOH volumes
+# Web UI:    http://localhost:8320/admin/
+# SIP:       sip:localhost:5162
+# Mailhog:   http://localhost:8620
+# AMI (mgr): localhost:5038
+
+name: it-stack-freepbx-lab03
+
 services:
-  freepbx:
-    image: tiredofit/freepbx:16
-    container_name: it-stack-freepbx
+  # ── External Database ─────────────────────────────────────────────────────────
+  freepbx-a03-db:
+    image: mariadb:10.11
+    container_name: freepbx-a03-db
     restart: unless-stopped
-    ports:
-      - "5060:$firstPort"
     environment:
-      - IT_STACK_ENV=lab-03-advanced
-      - TLS_ENABLED=true
+      MYSQL_ROOT_PASSWORD: RootLab03!
+      MYSQL_DATABASE: asterisk
+      MYSQL_USER: asterisk
+      MYSQL_PASSWORD: AsteriskLab03!
     volumes:
-      - freepbx_data:/var/lib/freepbx
-      - ./certs:/etc/ssl/certs:ro
+      - freepbx-a03-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-pRootLab03!", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: G
-    logging:
-      driver: json-file
-      options:
-        max-size: "100m"
-        max-file: "5"
+          cpus: "0.5"
+          memory: 512M
     networks:
-      - it-stack-net
+      - freepbx-a03-net
+
+  # ── SMTP Relay ────────────────────────────────────────────────────────────────
+  freepbx-a03-mail:
+    image: mailhog/mailhog:latest
+    container_name: freepbx-a03-mail
+    restart: unless-stopped
+    ports:
+      - "8620:8025"
+    networks:
+      - freepbx-a03-net
+
+  # ── FreePBX Application (Advanced) ───────────────────────────────────────────
+  freepbx-a03-app:
+    image: tiredofit/freepbx:16
+    container_name: freepbx-a03-app
+    restart: unless-stopped
+    depends_on:
+      freepbx-a03-db:
+        condition: service_healthy
+      freepbx-a03-mail:
+        condition: service_started
+    ports:
+      - "8320:80"
+      - "5162:5060/udp"
+      - "5162:5060/tcp"
+      - "5038:5038"
+    environment:
+      DB_HOST: freepbx-a03-db
+      DB_NAME: asterisk
+      DB_USER: asterisk
+      DB_PASS: AsteriskLab03!
+      ADMIN_PASSWORD: Admin03!
+      RTP_START: "18000"
+      RTP_FINISH: "18100"
+      SMTP_HOST: freepbx-a03-mail
+      SMTP_PORT: "1025"
+      # AMI manager interface
+      AMI_ENABLED: "true"
+      AMI_PORT: "5038"
+      # Voicemail
+      VOICEMAIL_DOMAIN: lab.local
+      VOICEMAIL_FROM: voicemail@lab.local
+    volumes:
+      - freepbx-a03-data:/var/www/html/admin/modules
+      - freepbx-a03-recordings:/var/spool/asterisk/monitor
+      - freepbx-a03-moh:/var/lib/asterisk/moh
+      - freepbx-a03-voicemail:/var/spool/asterisk/voicemail
+      - freepbx-a03-logs:/var/log
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx\\|asterisk\\|login'"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 180s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    networks:
+      - freepbx-a03-net
 
 networks:
-  it-stack-net:
+  freepbx-a03-net:
     driver: bridge
 
 volumes:
-  freepbx_data:
+  freepbx-a03-db-data:
+  freepbx-a03-data:
+  freepbx-a03-recordings:
+  freepbx-a03-moh:
+  freepbx-a03-voicemail:
+  freepbx-a03-logs:
