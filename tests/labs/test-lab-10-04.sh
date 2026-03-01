@@ -52,19 +52,113 @@ info "Phase 3: Functional Tests (Lab 04 — SSO Integration)"
 #     fail "Health endpoint not reachable"
 # fi
 
-warn "Functional tests for Lab 10-04 pending implementation"
+# ── 3a: Keycloak realm + OIDC client ─────────────────────────────────────────
+info "Creating it-stack realm and freepbx OIDC client via Keycloak API..."
 
-# ── PHASE 4: Cleanup ──────────────────────────────────────────────────────────
-info "Phase 4: Cleanup"
-docker compose -f "${COMPOSE_FILE}" down -v --remove-orphans
-info "Cleanup complete"
+KC_TOKEN=$(curl -sf -X POST "http://localhost:8440/realms/master/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password&client_id=admin-cli&username=admin&password=Admin04!" \
+  | grep -o '"access_token":"[^"]*' | cut -d'"' -f4 || echo "")
+
+if [ -n "${KC_TOKEN}" ]; then
+  pass "Keycloak admin token obtained"
+else
+  fail "Failed to get Keycloak admin token"
+  KC_TOKEN=""
+fi
+
+if [ -n "${KC_TOKEN}" ]; then
+  HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+    -X POST "http://localhost:8440/admin/realms" \
+    -H "Authorization: Bearer ${KC_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{"realm":"it-stack","enabled":true,"displayName":"IT-Stack Lab"}' || echo "000")
+  if [ "${HTTP_STATUS}" = "201" ] || [ "${HTTP_STATUS}" = "409" ]; then
+    pass "Keycloak it-stack realm created (status: ${HTTP_STATUS})"
+  else
+    fail "Failed to create it-stack realm (status: ${HTTP_STATUS})"
+  fi
+fi
+
+if [ -n "${KC_TOKEN}" ]; then
+  HTTP_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+    -X POST "http://localhost:8440/admin/realms/it-stack/clients" \
+    -H "Authorization: Bearer ${KC_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{"clientId":"freepbx","enabled":true,"protocol":"openid-connect","publicClient":false,"redirectUris":["http://localhost:8340/*"]}' || echo "000")
+  if [ "${HTTP_STATUS}" = "201" ] || [ "${HTTP_STATUS}" = "409" ]; then
+    pass "Keycloak freepbx OIDC client created (status: ${HTTP_STATUS})"
+  else
+    fail "Failed to create freepbx OIDC client (status: ${HTTP_STATUS})"
+  fi
+fi
+
+if curl -sf "http://localhost:8440/realms/it-stack/.well-known/openid-configuration" | grep -q 'issuer'; then
+  pass "Keycloak OIDC discovery endpoint returns issuer"
+else
+  fail "Keycloak OIDC discovery endpoint missing issuer"
+fi
+
+# ── 3b: LDAP integration ──────────────────────────────────────────────────────
+info "Testing LDAP integration..."
+
+if docker exec freepbx-s04-ldap ldapsearch -x -H ldap://localhost \
+     -b dc=lab,dc=local -D cn=admin,dc=lab,dc=local -w LdapLab04! \
+     '(objectClass=*)' dn 2>/dev/null | grep -q 'dn:'; then
+  pass "LDAP base DC dc=lab,dc=local has entries"
+else
+  fail "LDAP base DC search returned no entries"
+fi
+
+if docker exec freepbx-s04-app curl -sf http://freepbx-s04-kc:8080/realms/master > /dev/null 2>&1; then
+  pass "Keycloak reachable from FreePBX container"
+else
+  fail "Keycloak not reachable from FreePBX container"
+fi
+
+if docker exec freepbx-s04-app env | grep -q 'LDAP_ENABLED=TRUE'; then
+  pass "LDAP_ENABLED=TRUE set in FreePBX container"
+else
+  fail "LDAP_ENABLED not set in FreePBX container"
+fi
+
+if docker exec freepbx-s04-app env | grep -q 'LDAP_HOST=freepbx-s04-ldap'; then
+  pass "LDAP_HOST correctly set to freepbx-s04-ldap"
+else
+  fail "LDAP_HOST not set correctly in FreePBX container"
+fi
+
+# ── 3c: VoIP ports ────────────────────────────────────────────────────────────
+if nc -z localhost 5164 2>/dev/null; then
+  pass "SIP port 5164 reachable"
+else
+  warn "SIP port 5164 not yet reachable (FreePBX may still be initializing)"
+fi
+
+if nc -z localhost 5039 2>/dev/null; then
+  pass "AMI port 5039 reachable"
+else
+  warn "AMI port 5039 not yet reachable"
+fi
+
+# ── 3d: All 5 containers running ──────────────────────────────────────────────
+for svc in freepbx-s04-db freepbx-s04-ldap freepbx-s04-kc freepbx-s04-mail freepbx-s04-app; do
+  if docker ps --format '{{.Names}}' | grep -q "^${svc}$"; then
+    pass "Container ${svc} running"
+  else
+    fail "Container ${svc} not running"
+  fi
+done
 
 # ── Results ───────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}======================================${NC}"
-echo -e " Lab ${LAB_ID} Complete"
-echo -e " ${GREEN}PASS: ${PASS}${NC} | ${RED}FAIL: ${FAIL}${NC}"
-echo -e "${CYAN}======================================${NC}"
+echo -e "${CYAN}============================================================${NC}"
+echo -e "  Lab ${LAB_ID} Complete"
+echo -e "  ${GREEN}PASS: ${PASS}${NC} | ${RED}FAIL: ${FAIL}${NC}"
+echo -e "${CYAN}============================================================${NC}"
+
+# Cleanup
+docker compose -f "${COMPOSE_FILE}" down -v --remove-orphans 2>/dev/null || true
 
 if [ "${FAIL}" -gt 0 ]; then
     exit 1
