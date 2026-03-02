@@ -1,53 +1,172 @@
-# Lab 06 — Production: freepbx HA-ready with monitoring and external volumes
+# Lab 06 — Production Deployment: FreePBX
+# Full production-grade stack: MariaDB · OpenLDAP · Keycloak · Mailhog · FreePBX
+# Ports: Web:8380  SIP:5167/udp  AMI:5042  KC:8480  LDAP:3898  MH:8680
+# Naming: freepbx-p06-{service}  (p06 = production lab 06)
 ---
+name: it-stack-freepbx-lab06
+
 services:
-  freepbx:
-    image: tiredofit/freepbx:16
-    container_name: it-stack-freepbx
-    restart: always
-    ports:
-      - "5060:$firstPort"
+
+  freepbx-p06-db:
+    image: mariadb:10.11
+    container_name: freepbx-p06-db
+    restart: unless-stopped
     environment:
-      - IT_STACK_ENV=production
-      - KEYCLOAK_URL=
-      - DB_HOST=
-      - REDIS_HOST=
-      - GRAYLOG_HOST=
+      MYSQL_ROOT_PASSWORD: RootProd06!
+      MYSQL_DATABASE: asterisk
+      MYSQL_USER: asteriskuser
+      MYSQL_PASSWORD: AsteriskProd06!
     volumes:
-      - freepbx_data:/var/lib/freepbx
-      - /etc/ssl/certs:/etc/ssl/certs:ro
-    deploy:
-      replicas: 1
-      resources:
-        limits:
-          cpus: "4.0"
-          memory: G
-        reservations:
-          cpus: "1.0"
-          memory: 1G
-      restart_policy:
-        condition: any
-        delay: 5s
-    logging:
-      driver: gelf
-      options:
-        gelf-address: "udp://${GRAYLOG_HOST}:12201"
-        tag: "it-stack-freepbx"
+      - db-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-pRootProd06!", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 512M}
+        reservations: {cpus: "0.25", memory: 128M}
+    networks: [lab06]
+
+  freepbx-p06-ldap:
+    image: osixia/openldap:1.5.0
+    container_name: freepbx-p06-ldap
+    restart: unless-stopped
+    environment:
+      LDAP_ORGANISATION: IT-Stack Lab
+      LDAP_DOMAIN: lab.local
+      LDAP_ADMIN_PASSWORD: LdapProd06!
+    ports:
+      - "3898:389"
+    volumes:
+      - ldap-data:/var/lib/ldap
+      - ldap-config:/etc/ldap/slapd.d
+    healthcheck:
+      test: ["CMD-SHELL", "ldapsearch -x -H ldap://localhost -b dc=lab,dc=local -D cn=admin,dc=lab,dc=local -w LdapProd06! cn=admin && echo ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    networks: [lab06]
+
+  freepbx-p06-kc:
+    image: quay.io/keycloak/keycloak:24.0.3
+    container_name: freepbx-p06-kc
+    command: start-dev
+    restart: unless-stopped
+    environment:
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: Admin06!
+    ports:
+      - "8480:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/master || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 768M}
+        reservations: {cpus: "0.25", memory: 256M}
+    networks: [lab06]
+
+  freepbx-p06-mail:
+    image: mailhog/mailhog:latest
+    container_name: freepbx-p06-mail
+    restart: unless-stopped
+    ports:
+      - "8680:8025"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8025/api/v2/messages || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 128M}
+    networks: [lab06]
+
+  freepbx-p06-app:
+    image: tiredofit/freepbx:16
+    container_name: freepbx-p06-app
+    restart: unless-stopped
+    depends_on:
+      freepbx-p06-db:
+        condition: service_healthy
+      freepbx-p06-ldap:
+        condition: service_healthy
+      freepbx-p06-kc:
+        condition: service_healthy
+      freepbx-p06-mail:
+        condition: service_started
+    ports:
+      - "8380:80"
+      - "5167:5060/udp"
+      - "5042:5038"
+    environment:
+      IT_STACK_ENV: production
+      IT_STACK_MODULE: freepbx
+      IT_STACK_LAB: "06"
+      ASTERISK_VERSION: "20"
+      DB_HOST: freepbx-p06-db
+      DB_PORT: "3306"
+      DB_NAME: asterisk
+      DB_USER: asteriskuser
+      DB_PASSWORD: AsteriskProd06!
+      DB_ROOT_PASSWORD: RootProd06!
+      SMTP_HOST: freepbx-p06-mail
+      SMTP_PORT: "1025"
+      LDAP_ENABLED: "true"
+      LDAP_HOST: freepbx-p06-ldap
+      LDAP_PORT: "389"
+      LDAP_BASE: dc=lab,dc=local
+      LDAP_ADMIN_DN: cn=admin,dc=lab,dc=local
+      LDAP_ADMIN_PASSWORD: LdapProd06!
+      KEYCLOAK_URL: http://freepbx-p06-kc:8080
+      KEYCLOAK_REALM: it-stack
+      KEYCLOAK_CLIENT_ID: freepbx
+      KEYCLOAK_CLIENT_SECRET: freepbx-prod-secret-06
+    volumes:
+      - data:/var/www/html
+      - recordings:/var/spool/asterisk/monitor
+      - moh:/var/lib/asterisk/moh
+      - voicemail:/var/spool/asterisk/voicemail
+      - logs:/var/log/asterisk
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 120s
-    networks:
-      - it-stack-net
+      retries: 5
+      start_period: 180s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    networks: [lab06]
 
 networks:
-  it-stack-net:
-    external: true
-    name: it-stack-production
+  lab06:
+    driver: bridge
+    name: it-stack-freepbx-lab06
 
 volumes:
-  freepbx_data:
-    external: true
-    name: it-stack-freepbx-data
+  db-data:
+  ldap-data:
+  ldap-config:
+  data:
+  recordings:
+  moh:
+  voicemail:
+  logs:
