@@ -12,15 +12,15 @@
 #   Keycloak:   admin / Admin05!  realm: it-stack
 #   LDAP admin: cn=admin,dc=lab,dc=local / LdapLab05!
 #   LDAP readonly: cn=readonly,dc=lab,dc=local / ReadOnly05!
-# What's new vs Lab 04 (INT-09 additions):
+# What's new vs Lab 04 (INT-09 + INT-10 additions):
 #   + freepbx-i05-ldap-seed init container populates FreeIPA-style LDAP tree
 #     (pbxadmin exten:100, pbxuser1 exten:101, pbxuser2 exten:102)
 #   + KC healthcheck updated to /health/ready
 #   + KC depends_on: ldap-seed: service_completed_successfully
 #   + WireMock 3.x simulates SuiteCRM CTI API (calls/save, contacts/lookup)
-#   + WireMock also mocks Zammad ticket creation webhook
+#   + WireMock also mocks Zammad ticket creation webhook (INT-10)
 #   + FreePBX: SUITECRM_URL, SUITECRM_API_KEY, ZAMMAD_WEBHOOK_URL env vars
-# Integration tested: FreePBX ↔ SuiteCRM CTI (click-to-call + call logging)
+# Integration tested: FreePBX ↔ SuiteCRM CTI (INT-09) · FreePBX → Zammad phone tickets (INT-10)
 # =============================================================================
 
 name: it-stack-freepbx-lab05
