@@ -2,21 +2,25 @@
 # IT-Stack: FreePBX — Lab 05: Advanced Integration
 # Module 10 · Phase 3 · Lab 05
 # =============================================================================
-# Services: MariaDB · OpenLDAP · Keycloak · WireMock (SuiteCRM-mock) · Mailhog · FreePBX
+# Services: MariaDB · OpenLDAP · ldap-seed (init) · Keycloak · WireMock · Mailhog · FreePBX
 # Ports:    FreePBX web:8360  SIP:5165  AMI:5040  WireMock:8361
 #           Keycloak:8460  LDAP:3894  Mailhog:8660
 # Credentials:
 #   DB root:    RootLab05!
 #   FreePBX DB: asteriskuser / AsteriskLab05!
 #   FreePBX UI: admin / Admin05!
-#   Keycloak:   admin / Admin05!
-#   LDAP:       cn=admin,dc=lab,dc=local / LdapLab05!
-# What's new vs Lab 04:
-#   + WireMock 3.x simulates SuiteCRM CTI API (click-to-call + call logging)
-#   + FreePBX integration env vars: SUITECRM_URL, SUITECRM_API_KEY
-#   + AGI/webhook integration: FreePBX posts call events to SuiteCRM mock
-#   + Pre-configured WireMock stubs: /calls/save, /contacts/lookup
-# Integration tested: FreePBX ↔ SuiteCRM (CTI), FreePBX ↔ Zammad (webhooks)
+#   Keycloak:   admin / Admin05!  realm: it-stack
+#   LDAP admin: cn=admin,dc=lab,dc=local / LdapLab05!
+#   LDAP readonly: cn=readonly,dc=lab,dc=local / ReadOnly05!
+# What's new vs Lab 04 (INT-09 additions):
+#   + freepbx-i05-ldap-seed init container populates FreeIPA-style LDAP tree
+#     (pbxadmin exten:100, pbxuser1 exten:101, pbxuser2 exten:102)
+#   + KC healthcheck updated to /health/ready
+#   + KC depends_on: ldap-seed: service_completed_successfully
+#   + WireMock 3.x simulates SuiteCRM CTI API (calls/save, contacts/lookup)
+#   + WireMock also mocks Zammad ticket creation webhook
+#   + FreePBX: SUITECRM_URL, SUITECRM_API_KEY, ZAMMAD_WEBHOOK_URL env vars
+# Integration tested: FreePBX ↔ SuiteCRM CTI (click-to-call + call logging)
 # =============================================================================
 
 name: it-stack-freepbx-lab05
@@ -79,13 +83,31 @@ services:
         limits:
           memory: 256M
           cpus: "0.25"
-
+  # ── LDAP seed (init container — runs once, then exits) ─────────────────────
+  freepbx-i05-ldap-seed:
+    image: osixia/openldap:1.5.0
+    container_name: freepbx-i05-ldap-seed
+    restart: "no"
+    depends_on:
+      freepbx-i05-ldap:
+        condition: service_healthy
+    command: >
+      ldapadd -x -H ldap://freepbx-i05-ldap:389
+      -D cn=admin,dc=lab,dc=local -w LdapLab05!
+      -f /seed/freepbx-ldap-seed.ldif
+    volumes:
+      - ./freepbx-ldap-seed.ldif:/seed/freepbx-ldap-seed.ldif:ro
+    networks:
+      - freepbx-i05-net
   # ── Keycloak ─────────────────────────────────────────────────────────────
   freepbx-i05-kc:
     image: quay.io/keycloak/keycloak:24.0.3
     container_name: freepbx-i05-kc
     restart: unless-stopped
     command: start-dev
+    depends_on:
+      freepbx-i05-ldap-seed:
+        condition: service_completed_successfully
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: Admin05!
@@ -97,7 +119,7 @@ services:
     ports:
       - "8460:8080"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/master || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready | grep -q UP || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 20

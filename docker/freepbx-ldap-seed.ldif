@@ -1,0 +1,89 @@
+# =============================================================================
+# IT-Stack: FreePBX — Lab 05 LDAP seed data
+# INT-09: FreePBX ↔ SuiteCRM CTI (click-to-call, call logging)
+# FreeIPA-style tree: cn=accounts  →  cn=users,cn=accounts / cn=groups,cn=accounts
+# Users:  pbxadmin (ext 100) · pbxuser1 (ext 101) · pbxuser2 (ext 102)
+# Groups: cn=pbx-admins (pbxadmin)  ·  cn=pbx-users (pbxuser1, pbxuser2)
+# =============================================================================
+
+# ── Organisational units ───────────────────────────────────────────────────
+dn: cn=accounts,dc=lab,dc=local
+objectClass: organizationalRole
+cn: accounts
+description: FreeIPA-style accounts container
+
+dn: cn=users,cn=accounts,dc=lab,dc=local
+objectClass: organizationalRole
+cn: users
+description: User accounts
+
+dn: cn=groups,cn=accounts,dc=lab,dc=local
+objectClass: organizationalRole
+cn: groups
+description: Group accounts
+
+# ── Users ──────────────────────────────────────────────────────────────────
+dn: uid=pbxadmin,cn=users,cn=accounts,dc=lab,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: posixAccount
+uid: pbxadmin
+cn: PBX Admin
+sn: Admin
+givenName: PBX
+mail: pbxadmin@lab.local
+telephoneNumber: 100
+uidNumber: 11001
+gidNumber: 11001
+homeDirectory: /home/pbxadmin
+userPassword: {SSHA}Lab05Password!encoded==
+description: FreePBX administrator — extension 100
+
+dn: uid=pbxuser1,cn=users,cn=accounts,dc=lab,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: posixAccount
+uid: pbxuser1
+cn: PBX User One
+sn: User One
+givenName: PBX
+mail: pbxuser1@lab.local
+telephoneNumber: 101
+uidNumber: 11002
+gidNumber: 11001
+homeDirectory: /home/pbxuser1
+userPassword: {SSHA}Lab05Password!encoded==
+description: FreePBX standard user — extension 101
+
+dn: uid=pbxuser2,cn=users,cn=accounts,dc=lab,dc=local
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: posixAccount
+uid: pbxuser2
+cn: PBX User Two
+sn: User Two
+givenName: PBX
+mail: pbxuser2@lab.local
+telephoneNumber: 102
+uidNumber: 11003
+gidNumber: 11001
+homeDirectory: /home/pbxuser2
+userPassword: {SSHA}Lab05Password!encoded==
+description: FreePBX standard user — extension 102
+
+# ── Groups ─────────────────────────────────────────────────────────────────
+dn: cn=pbx-admins,cn=groups,cn=accounts,dc=lab,dc=local
+objectClass: groupOfNames
+cn: pbx-admins
+description: PBX administrators with full FreePBX access
+member: uid=pbxadmin,cn=users,cn=accounts,dc=lab,dc=local
+
+dn: cn=pbx-users,cn=groups,cn=accounts,dc=lab,dc=local
+objectClass: groupOfNames
+cn: pbx-users
+description: Standard PBX users with extension access
+member: uid=pbxuser1,cn=users,cn=accounts,dc=lab,dc=local
+member: uid=pbxuser2,cn=users,cn=accounts,dc=lab,dc=local
