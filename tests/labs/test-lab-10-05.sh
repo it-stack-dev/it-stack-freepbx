@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# test-lab-10-05.sh — Lab 10-05: Advanced Integration (INT-09)
+# test-lab-10-05.sh — Lab 10-05: Advanced Integration (INT-09 + INT-10 + INT-11)
 # Module 10: FreePBX/Asterisk VoIP PBX
-# Integration: FreePBX ↔ SuiteCRM CTI (click-to-call + call logging)
+# Integrations: FreePBX ↔ SuiteCRM CTI (INT-09)
+#               FreePBX → Zammad phone tickets (INT-10)
+#               FreePBX ↔ FreeIPA extension provisioning (INT-11)
 # Services: MariaDB · OpenLDAP · ldap-seed (init) · Keycloak · WireMock · Mailhog · FreePBX
 # Ports:    Web:8360  SIP:5165  AMI:5040  WireMock:8361  KC:8460  LDAP:3894  MH:8660
-# Phases:   1-Setup  2-Health  3-LDAPSeed  4-Keycloak  5-FreePBX  6-SuiteCRMCTI  7-Zammad  8-Volumes
+# Phases:   1-Setup  2-Health  3-LDAPSeed  4-Keycloak  5-FreePBX  6-SuiteCRMCTI  7-Zammad  8-Volumes  9-FreeIPASync
 set -euo pipefail
 
 LAB_ID="10-05"
-LAB_NAME="Advanced Integration (INT-09)"
+LAB_NAME="Advanced Integration (INT-09 + INT-10 + INT-11)"
 MODULE="freepbx"
 COMPOSE_FILE="docker/docker-compose.integration.yml"
 MOCK_URL="http://localhost:8361"
@@ -446,10 +448,76 @@ for envkey in DB_HOST LDAP_ENABLED KEYCLOAK_URL; do
   fi
 done
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 9: FreeIPA LDAP Extension Provisioning (INT-11)
+# ═══════════════════════════════════════════════════════════════════════════════
+section "Phase 9: FreeIPA LDAP Extension Provisioning (INT-11)"
+
+FREEIPA_LDAP_PORT=3894
+FREEIPA_BIND_DN_R="cn=readonly,dc=lab,dc=local"
+FREEIPA_BIND_PW_R="ReadOnly05!"
+FREEIPA_BASE_DN_R="cn=users,cn=accounts,dc=lab,dc=local"
+
+# 9.1 -- LDAP port accessible
+if nc -z localhost "${FREEIPA_LDAP_PORT}" 2>/dev/null; then
+  pass "INT-11: FreeIPA-style LDAP :${FREEIPA_LDAP_PORT} accessible"
+else
+  fail "INT-11: FreeIPA-style LDAP :${FREEIPA_LDAP_PORT} not accessible"
+fi
+
+# 9.2 -- Users with telephoneNumber found via docker exec LDAP search
+if docker exec freepbx-i05-ldap ldapsearch -x \
+     -H ldap://localhost \
+     -D "${FREEIPA_BIND_DN_R}" -w "${FREEIPA_BIND_PW_R}" \
+     -b "${FREEIPA_BASE_DN_R}" \
+     '(telephoneNumber=*)' uid telephoneNumber -LLL 2>/dev/null \
+   | grep -q '^uid:'; then
+  pass "INT-11: Users with telephoneNumber found in FreeIPA-style LDAP"
+else
+  fail "INT-11: No users with telephoneNumber found in FreeIPA-style LDAP"
+fi
+
+# 9.3 -- Specific extensions present (100, 101, 102)
+for uid_exten in "pbxadmin:100" "pbxuser1:101" "pbxuser2:102"; do
+  uid_val="${uid_exten%%:*}"
+  exten_val="${uid_exten##*:}"
+  if docker exec freepbx-i05-ldap ldapsearch -x \
+       -H ldap://localhost \
+       -D "${FREEIPA_BIND_DN_R}" -w "${FREEIPA_BIND_PW_R}" \
+       -b "${FREEIPA_BASE_DN_R}" \
+       "(uid=${uid_val})" telephoneNumber -LLL 2>/dev/null \
+     | grep -q "telephoneNumber: ${exten_val}"; then
+    pass "INT-11: uid=${uid_val} has telephoneNumber=${exten_val}"
+  else
+    fail "INT-11: uid=${uid_val} telephoneNumber=${exten_val} not found"
+  fi
+done
+
+# 9.4 -- FreePBX env vars for FreeIPA LDAP sync
+for envkey in FREEIPA_LDAP_URL FREEIPA_BIND_DN FREEIPA_BASE_DN FREEIPA_EXTEN_ATTR; do
+  if docker exec freepbx-i05-app env 2>/dev/null | grep -q "^${envkey}="; then
+    pass "INT-11: Env ${envkey} set in FreePBX container"
+  else
+    warn "INT-11: Env ${envkey} not set in FreePBX container (expected from compose INT-11)"
+  fi
+done
+
+# 9.5 -- FreePBX container can reach LDAP server
+if docker exec freepbx-i05-app sh -c \
+     'nc -z freepbx-i05-ldap 389 2>/dev/null && echo ok' 2>/dev/null \
+   | grep -q ok; then
+  pass "INT-11: FreePBX container can reach OpenLDAP (FreeIPA proxy) :389"
+else
+  fail "INT-11: FreePBX container cannot reach OpenLDAP :389"
+fi
+
 # ── Results ───────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}============================================================${NC}"
-echo -e "  Lab ${LAB_ID} INT-09 Complete"
+echo -e "  Lab ${LAB_ID}: INT-09 + INT-10 + INT-11 Complete"
+echo -e "  INT-09: FreePBX \u2194 SuiteCRM CTI"
+echo -e "  INT-10: FreePBX \u2192 Zammad phone tickets"
+echo -e "  INT-11: FreePBX \u2194 FreeIPA extension provisioning"
 echo -e "  ${GREEN}PASS: ${PASS}${NC} | ${RED}FAIL: ${FAIL}${NC}"
 echo -e "${CYAN}============================================================${NC}"
 

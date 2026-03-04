@@ -12,7 +12,7 @@
 #   Keycloak:   admin / Admin05!  realm: it-stack
 #   LDAP admin: cn=admin,dc=lab,dc=local / LdapLab05!
 #   LDAP readonly: cn=readonly,dc=lab,dc=local / ReadOnly05!
-# What's new vs Lab 04 (INT-09 + INT-10 additions):
+# What's new vs Lab 04 (INT-09 + INT-10 + INT-11 additions):
 #   + freepbx-i05-ldap-seed init container populates FreeIPA-style LDAP tree
 #     (pbxadmin exten:100, pbxuser1 exten:101, pbxuser2 exten:102)
 #   + KC healthcheck updated to /health/ready
@@ -20,7 +20,9 @@
 #   + WireMock 3.x simulates SuiteCRM CTI API (calls/save, contacts/lookup)
 #   + WireMock also mocks Zammad ticket creation webhook (INT-10)
 #   + FreePBX: SUITECRM_URL, SUITECRM_API_KEY, ZAMMAD_WEBHOOK_URL env vars
+#   + FreePBX: FREEIPA_LDAP_URL, FREEIPA_BIND_DN, FREEIPA_BASE_DN env vars (INT-11)
 # Integration tested: FreePBX ↔ SuiteCRM CTI (INT-09) · FreePBX → Zammad phone tickets (INT-10)
+#                     FreePBX ↔ FreeIPA extension provisioning (INT-11)
 # =============================================================================
 
 name: it-stack-freepbx-lab05
@@ -215,6 +217,12 @@ services:
       SUITECRM_CONTACTS_ENDPOINT: /index.php?module=Contacts&action=index
       # Zammad webhook (via WireMock)
       ZAMMAD_WEBHOOK_URL: http://freepbx-i05-mock:8080/api/v1/tickets
+      # FreeIPA LDAP extension provisioning (INT-11 -- same OpenLDAP instance)
+      FREEIPA_LDAP_URL: ldap://freepbx-i05-ldap:389
+      FREEIPA_BIND_DN: cn=readonly,dc=lab,dc=local
+      FREEIPA_BIND_PW: ReadOnly05!
+      FREEIPA_BASE_DN: cn=users,cn=accounts,dc=lab,dc=local
+      FREEIPA_EXTEN_ATTR: telephoneNumber
       # Mail relay
       SMTP_HOST: freepbx-i05-mail
       SMTP_PORT: "1025"
