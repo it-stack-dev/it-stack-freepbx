@@ -50,7 +50,7 @@ services:
     networks:
       - freepbx-s01-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx\|asterisk\|login\|password' || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx|asterisk|login|password' || exit 1"]
       interval: 30s
       timeout: 15s
       retries: 10

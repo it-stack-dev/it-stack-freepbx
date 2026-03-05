@@ -67,7 +67,7 @@ services:
       - freepbx-l02-data:/var/www/html/admin/modules
       - freepbx-l02-logs:/var/log
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx\|asterisk\|login'"]
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx|asterisk|login'"]
       interval: 30s
       timeout: 15s
       retries: 10

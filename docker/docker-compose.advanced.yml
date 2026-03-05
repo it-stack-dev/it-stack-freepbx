@@ -83,7 +83,7 @@ services:
       - freepbx-a03-voicemail:/var/spool/asterisk/voicemail
       - freepbx-a03-logs:/var/log
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx\|asterisk\|login'"]
+      test: ["CMD-SHELL", "curl -sf http://localhost/admin/config.php | grep -qi 'freepbx|asterisk|login'"]
       interval: 30s
       timeout: 15s
       retries: 10
